@@ -1,0 +1,164 @@
+//------------------------------------------------
+//--- 010 Editor v10.0.2 Binary Template
+//
+//      File: Skyrim_SKSE.bt
+//   Authors: UrbanCMC
+//   Version: 0.1
+//   Purpose: Binary Template for Skyrim SKSE co-saves
+//  Category: Game
+// File Mask: *.skse
+//  ID Bytes: 53 4B 53 45 //SKSE
+//   History: 
+//------------------------------------------------
+
+// Define structures used in SKSE co-saves
+
+// Define types
+typedef uint PACKED_VERSION <read=PackedVersionRead, write=PackedVersionWrite>;
+typedef char TYPE[4] <read=TypeRead, write=TypeWrite>;
+
+// File header
+typedef struct {
+    char Format[4]; //SKSE
+    uint FormatVersion;
+    PACKED_VERSION SKSEVersion;
+    PACKED_VERSION RuntimeVersion;
+    uint PluginCount;
+} SKSE_HEADER<name="Header">;
+
+// New plugin load order info
+typedef struct {
+    ubyte Index<format=hex>;
+    if (Index == 254)
+    {
+        ushort LightIndex<format=hex>;
+    }
+    ushort Length;
+    char Name[Length];
+} LOAD_ORDER_PLGN<name=PlgnName, optimize=false>;
+
+// Old plugin load order info (no ESL support)
+typedef struct {
+    ubyte Length;
+    ubyte Index<format=hex>;
+    char Name[Length];
+} LOAD_ORDER_MODS<name=ModsName, optimize=false>;
+
+// Chunk of plugin load order
+typedef struct {
+    if (Chunks.Type == "NGLP")
+    {
+        ushort TotalPlugins;
+        LOAD_ORDER_PLGN Plugins[TotalPlugins];
+    }
+    else if (Chunks.Type == "SDOM")
+    {
+        ubyte TotalPlugins;
+        LOAD_ORDER_MODS Plugins[TotalPlugins];
+    }
+    
+} CHUNK_DATA_PLUGIN<name="Load Order", optimize=false>;
+
+// Chunk of undefined data
+typedef struct {
+    FSkip(Chunks.Length);
+} CHUNK_DATA<name="Data">;
+
+// Defines a plugin chunk header
+typedef struct {
+    TYPE Type;
+    uint Version;
+    uint Length;
+    if (Type == "NGLP" || Type == "SDOM")
+    {
+        CHUNK_DATA_PLUGIN Plugins;
+    }
+    else if (Length > 0)
+    {
+        CHUNK_DATA Data;
+    }
+} CHUNK_HEADER<name=ChunkHeaderName, optimize=false>;
+
+// Defines a plugin header
+typedef struct {
+    TYPE Signature;
+    uint ChunkCount;
+    uint Length; // Length of following data including CHUNK_HEADER
+    CHUNK_HEADER Chunks[ChunkCount];
+} PLUGIN_HEADER<name=PluginHeaderName, optimize=false>;
+
+// Defines the complete file
+typedef struct {
+    SKSE_HEADER Header;
+    PLUGIN_HEADER Plugins[Header.PluginCount];
+} FILE<open=true>;
+
+//------------------------------------------------
+// Define helper functions
+
+// ---------- Read/Write Functions ----------
+string PackedVersionRead(PACKED_VERSION v)
+{
+    uint major = (v & 0xFF000000) >> 24;
+    uint minor = (v & 0x00FF0000) >> 16;
+    uint build = (v & 0x0000FFF0) >> 4;
+    uint sub =   (v & 0x0000000F) >> 0;
+
+    string version;
+    SPrintf(version, "%d.%d.%d.%d", major, minor, build, sub);
+    return version;
+}
+
+void PackedVersionWrite(PACKED_VERSION &v, string version)
+{
+    uint major, minor, build, sub;
+    SScanf(version, "%d.%d.%d.%d", major, minor, build, sub);
+    v = ((((major) & 0xFF) << 24) | (((minor) & 0xFF) << 16) | (((build) & 0xFFF) << 4) | ((sub) & 0xF));
+}
+
+string TypeRead(TYPE values)
+{
+    string name;
+    SPrintf(name, "%s%s%s%s", values[3], values[2], values[1], values[0]);
+    if (name == "")
+    {
+        name = "SKSE";
+    }
+
+    return name;
+}
+
+void TypeWrite(TYPE &v, string name)
+{
+    v[0] = name[3];
+    v[1] = name[2];
+    v[2] = name[1];
+    v[3] = name[0];
+}
+
+// ---------- Name Functions ----------
+
+string ChunkHeaderName(CHUNK_HEADER &c)
+{
+    return "Chunk: " + TypeRead(c.Type);
+}
+
+string ModsName(LOAD_ORDER_MODS &p)
+{
+    return p.Name;
+}
+
+string PluginHeaderName(PLUGIN_HEADER &p)
+{
+    return "Plugin: " + TypeRead(p.Signature);
+}
+
+string PlgnName(LOAD_ORDER_PLGN &p)
+{
+    return p.Name;
+}
+
+//------------------------------------------------
+// Define the file
+LittleEndian();
+FILE file;
